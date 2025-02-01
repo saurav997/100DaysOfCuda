@@ -3,7 +3,7 @@
 #include <cmath>
 
 __global__ void Softmax(float* input, float* output, int rows, int cols) {
-    int row = threadIdx.x + blockDim.x * blockIdx.x;
+    int row = blockDim.x * blockIdx.x + threadIdx.x ;
 
     if (row < rows) {
         float max_val = -INFINITY;
@@ -31,8 +31,8 @@ int main() {
     int cols = 3;
     int size = rows * cols * sizeof(float);
 
-    float *h_input = new float[rows * cols] {1.2, 2.3, 3.4, 4.5, 5.6, 6.7, 7.8, 8.9, 9.0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
-    float *h_output = new float[rows * cols];
+    float h_input[] = {1.2, 2.3, 3.4, 4.5, 5.6, 6.7, 7.8, 8.9, 9.0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+    float h_output[rows * cols];
 
     float *d_input, *d_output;
     cudaMalloc((void**)&d_input, size);
@@ -40,7 +40,7 @@ int main() {
 
     cudaMemcpy(d_input, h_input, size, cudaMemcpyHostToDevice);
 
-    dim3 blockSize(256);
+    dim3 blockSize(32);
     dim3 gridSize((rows + blockSize.x - 1) / blockSize.x);
 
     Softmax<<<gridSize, blockSize>>>(d_input, d_output, rows, cols);
@@ -48,15 +48,17 @@ int main() {
     cudaMemcpy(h_output, d_output, size, cudaMemcpyDeviceToHost);
 
     // Print output for verification
-    std::cout << "Softmax (Global Memory) - First 5 elements: ";
-    for (int i = 0; i < 5; i++) std::cout << h_output[i] << " ";
-    std::cout << std::endl;
-
+    std::cout << "Softmax: "<<std::endl;
+    for (int i = 0; i < rows; i++) 
+    {
+      for(int j=0;j<cols;j++)
+      {
+        std::cout << h_output[i*cols+j] << " ";
+      }
+      std::cout << std::endl;
+    }
     // Free memory
     cudaFree(d_input);
     cudaFree(d_output);
-    delete[] h_input;
-    delete[] h_output;
-
     return 0;
 }
