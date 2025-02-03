@@ -1,32 +1,40 @@
 #include <cuda_runtime.h>
 #include <iostream>
 #include <cmath>
+#define Tile_Size 2
+__global__ void Matrix_Softmax_Shared_Memory(const float* input, float* output, int row,int col) {
+    int numThreads = blockDim.x*gridDim.x*blockDim.y*gridDim.y;
+    int x_coord = blockIdx.x*blockDim.x + threadIdx.x;
+    int y_coord = blockIdx.y*blockDim.y + threadIdx.y;
+    int row_start_index = Tile_Size*(x_coord);
+    int row_end_index = fmin(row, row_start_index + Tile_Size);
+    int col_start_index= Tile_Size*(y_coord);
+    int col_end_index = fmin(col, col_start_index + Tile_Size);
 
-__global__ void Softmax_Shared_Memory(const float* input, float* output, int size) {
-    int numThreads = blockDim.x*gridDim.x;
-    int numElementsPerThread = (size + numThreads - 1) / numThreads;
-    int start_index = threadIdx.x * numElementsPerThread;
-    int end_index = fmin(size, start_index + numElementsPerThread);
-
-    if (start_index >= size) return;  // Avoid out-of-bounds threads
+    if (row_start_index >= row || col_start_index>=col) return;  // Avoid out-of-bounds threads
 
     // Use `extern __shared__` for dynamic shared memory allocation
     extern __shared__ float shared_data[];
     float* shared_max_val = shared_data;  // First half for max values
-    float* shared_sum_exp = shared_data + numThreads;  // Second half for sum values
-
-    float max_val = -INFINITY;
-    float sum = 0.0f;
-
+    float* shared_sum_exp = shared_data + Tile_Size*numThreads;
+    float* max_val = shared_sum_exp + Tile_Size*numThreads; // Second half for sum values
+    float* sum = max_val + numThreads;  
+    int m;
+    int sum;
     // Step 1: Compute local max for numerical stability
-    for (int i = start_index; i < end_index; i++) {
-        max_val = fmaxf(max_val, input[i]);
+    for (int i = row_start_index; i < row_end_index; i++) 
+    {
+        m = -INFINITY;
+        for(int j=col_start_index;j<col_end_index;j++)
+        {
+            m = fmaxf(m, input[i*col+j]);
+        }
+        shared_max_val[j] = m;
     }
-    shared_max_val[threadIdx.x] = max_val;
     __syncthreads();
 
     // Step 2: Find the global max using all threads
-    if (threadIdx.x == 0) {
+    if (threadIdx.x == 0 && blockDim.x = 0) {
         max_val = -INFINITY;
         for (int i = 0; i < numThreads; i++) {
             max_val = fmaxf(max_val, shared_max_val[i]);
@@ -65,7 +73,7 @@ int main() {
     int space = size * sizeof(float);
     float h_input[] = {2.23, 2.33, 3.14, 4.15, 5.6, 6.17, 7.8, 1.9};
 
-    float* h_output = new float[size];  // Use dynamic allocation
+    float* h_output = new float[size];  // ✅ Use dynamic allocation
 
     float *d_input, *d_output;
     cudaMalloc((void**)&d_input, space);
@@ -76,7 +84,7 @@ int main() {
     dim3 blockDim(4);  // Number of threads per block
     dim3 gridDim((size + blockDim.x - 1) / blockDim.x);  // Compute correct grid size
 
-    // Specify shared memory size in kernel launch
+    // ✅ Specify shared memory size in kernel launch
     Softmax_Shared_Memory<<<gridDim, blockDim, 2 * blockDim.x * sizeof(float)>>>(d_input, d_output, size);
 
     cudaMemcpy(h_output, d_output, space, cudaMemcpyDeviceToHost);
@@ -96,10 +104,11 @@ int main() {
     }
     std::cout << std::endl;
     std::cout<<"the sum of Softmaxes: "<<sum<<std::endl;
-    //Free memory
+    // ✅ Free memory
     delete[] h_output;
     cudaFree(d_input);
     cudaFree(d_output);
 
     return 0;
 }
+
